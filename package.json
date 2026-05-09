@@ -1,0 +1,71 @@
+{
+  "name": "resource-monitor-lite",
+  "displayName": "Resource Monitor Lite",
+  "description": "A lightweight CPU, memory, and disk monitor for code-server and VS Code.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:resourceMonitorLite.showDashboard",
+    "onCommand:resourceMonitorLite.refresh"
+  ],
+  "main": "./extension.js",
+  "scripts": {
+    "check": "node --check extension.js && node --check scripts/package-vsix.js",
+    "package": "node scripts/package-vsix.js"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "resourceMonitorLite.showDashboard",
+        "title": "Resource Monitor Lite: Show Dashboard"
+      },
+      {
+        "command": "resourceMonitorLite.refresh",
+        "title": "Resource Monitor Lite: Refresh"
+      }
+    ],
+    "configuration": {
+      "title": "Resource Monitor Lite",
+      "properties": {
+        "resourceMonitorLite.refreshIntervalMs": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 500,
+          "description": "How often resource statistics are refreshed."
+        },
+        "resourceMonitorLite.diskPath": {
+          "type": "string",
+          "default": "/",
+          "description": "Filesystem path used for disk usage statistics."
+        },
+        "resourceMonitorLite.showDiskInStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show disk usage in the status bar item."
+        },
+        "resourceMonitorLite.statusBarFormat": {
+          "type": "string",
+          "default": "$(pulse) CPU {cpu}%  MEM {mem}%  DISK {disk}%",
+          "description": "Status bar format. Available placeholders: {cpu}, {mem}, {disk}, {load1}, {usedMem}, {totalMem}, {diskPath}."
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "resourceMonitorLite.showDashboard"
+        },
+        {
+          "command": "resourceMonitorLite.refresh"
+        }
+      ]
+    }
+  }
+}
