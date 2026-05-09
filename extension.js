@@ -190,25 +190,29 @@ function calculateCpuPercent(previous, current) {
 
 function createMemorySampler(platform) {
   if (platform === "linux") {
-    return sampleLinuxMemoryWithFallback;
+    const linuxTotal = readLinuxMemTotal();
+
+    if (linuxTotal) {
+      return () => sampleLinuxMemoryWithFallback(linuxTotal);
+    }
   }
 
-  return sampleFallbackMemory;
+  const fallbackTotal = os.totalmem();
+  return () => sampleFallbackMemory(fallbackTotal);
 }
 
-function sampleLinuxMemoryWithFallback() {
-  const linuxMemory = sampleLinuxMemory();
+function sampleLinuxMemoryWithFallback(total) {
+  const linuxMemory = sampleLinuxMemory(total);
 
   if (linuxMemory) {
     return linuxMemory;
   }
 
-  return sampleFallbackMemory();
+  return sampleFallbackMemory(total);
 }
 
-function sampleFallbackMemory() {
+function sampleFallbackMemory(total) {
   // Linux meminfo를 읽지 못하거나 Linux가 아니면 Node의 기본 freemem 값을 사용합니다.
-  const total = os.totalmem();
   const free = os.freemem();
   const used = total - free;
 
@@ -221,14 +225,22 @@ function sampleFallbackMemory() {
   };
 }
 
-function sampleLinuxMemory() {
+function readLinuxMemTotal() {
   try {
-    // Linux에서는 free보다 MemAvailable이 실제로 새 작업에 쓸 수 있는 메모리에 더 가깝습니다.
     const meminfo = parseMeminfo(fs.readFileSync("/proc/meminfo", "utf8"));
-    const total = meminfo.MemTotal;
+    return meminfo.MemTotal;
+  } catch {
+    return undefined;
+  }
+}
+
+function sampleLinuxMemory(total) {
+  try {
+    // Linux에서는 매초 바뀌는 MemAvailable만 읽고, MemTotal은 시작 시점에 잡은 값을 재사용합니다.
+    const meminfo = parseMeminfo(fs.readFileSync("/proc/meminfo", "utf8"));
     const available = meminfo.MemAvailable;
 
-    if (!total || !available) {
+    if (!available) {
       return undefined;
     }
 
