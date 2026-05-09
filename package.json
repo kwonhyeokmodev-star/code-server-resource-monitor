@@ -4,6 +4,7 @@
   "description": "A lightweight CPU and memory monitor for code-server and VS Code.",
   "version": "0.0.1",
   "publisher": "local",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },

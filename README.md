@@ -44,3 +44,7 @@ Resource Monitor Lite: Show Dashboard
 npm run check
 npm run package
 ```
+
+## 라이선스
+
+MIT 라이선스입니다. 자세한 내용은 [LICENSE](./LICENSE)를 참고하세요.

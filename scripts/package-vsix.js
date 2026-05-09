@@ -49,6 +49,7 @@ const files = [
   ["extension/package.json", fs.readFileSync(path.join(root, "package.json"))],
   ["extension/extension.js", fs.readFileSync(path.join(root, "extension.js"))],
   ["extension/README.md", fs.readFileSync(path.join(root, "README.md"))],
+  ["extension/LICENSE", fs.readFileSync(path.join(root, "LICENSE"))],
   ["extension/.vscodeignore", fs.readFileSync(path.join(root, ".vscodeignore"))]
 ];
 
