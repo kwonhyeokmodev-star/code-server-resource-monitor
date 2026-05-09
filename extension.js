@@ -5,6 +5,7 @@ const os = require("os");
 
 const DEFAULT_INTERVAL_MS = 2000;
 
+// code-server 상태바와 대시보드를 함께 관리하는 확장 본체입니다.
 class ResourceMonitor {
   constructor(context) {
     this.context = context;
@@ -29,6 +30,7 @@ class ResourceMonitor {
   }
 
   start() {
+    // 시작 직후 한 번 갱신하고, 이후에는 설정된 주기로 반복 갱신합니다.
     this.refresh();
     this.timer = setInterval(() => this.refresh(), this.intervalMs());
   }
@@ -57,6 +59,7 @@ class ResourceMonitor {
 
   async refresh() {
     try {
+      // CPU 사용률은 이전 샘플과 현재 샘플의 차이로 계산해야 순간값이 안정적으로 나옵니다.
       const stats = await collectStats(this.previousCpuSample);
       this.previousCpuSample = stats.cpu.sample;
       this.lastStats = stats;
@@ -77,6 +80,7 @@ class ResourceMonitor {
       return;
     }
 
+    // Webview는 VS Code/code-server 안에서 별도 HTML 화면으로 대시보드를 보여줍니다.
     this.panel = vscode.window.createWebviewPanel(
       "resourceMonitorLite",
       "Resource Monitor Lite",
@@ -99,6 +103,7 @@ class ResourceMonitor {
     const config = getConfig();
     const format = config.get("statusBarFormat", "$(pulse) CPU {cpu}%  MEM {mem}%");
 
+    // 사용자가 설정에서 상태바 문구를 바꿀 수 있도록 플레이스홀더를 치환합니다.
     this.statusBar.text = format
       .replaceAll("{cpu}", formatPercent(stats.cpu.percent))
       .replaceAll("{mem}", formatPercent(stats.memory.percent))
@@ -131,6 +136,7 @@ class ResourceMonitor {
 }
 
 async function collectStats(previousCpuSample) {
+  // Node.js의 os API만 사용해서 code-server 서버 프로세스가 보는 리소스를 측정합니다.
   const cpuSample = sampleCpu();
   const cpuPercent = calculateCpuPercent(previousCpuSample, cpuSample);
   const memory = sampleMemory();
@@ -156,6 +162,7 @@ async function collectStats(previousCpuSample) {
 }
 
 function sampleCpu() {
+  // 전체 코어의 idle/total 시간을 합산해 다음 샘플과 비교할 기준값을 만듭니다.
   return os.cpus().reduce((accumulator, cpu) => {
     const idle = cpu.times.idle;
     const total = Object.values(cpu.times).reduce((sum, value) => sum + value, 0);
@@ -174,6 +181,7 @@ function calculateCpuPercent(previous, current) {
     return 0;
   }
 
+  // 전체 시간 증가분에서 idle 증가분을 뺀 값이 실제로 사용된 CPU 시간입니다.
   return clamp(((totalDelta - idleDelta) / totalDelta) * 100, 0, 100);
 }
 
@@ -192,6 +200,7 @@ function sampleMemory() {
 
 function renderDashboardHtml(webview) {
   const nonce = createNonce();
+  // Webview 보안을 위해 현재 nonce가 붙은 스크립트만 실행되도록 제한합니다.
   const csp = [
     `default-src 'none'`,
     `style-src ${webview.cspSource} 'unsafe-inline'`,
@@ -506,6 +515,7 @@ function createNonce() {
 }
 
 function activate(context) {
+  // 확장이 활성화되면 모니터를 만들고 명령 팔레트용 명령을 등록합니다.
   const monitor = new ResourceMonitor(context);
 
   context.subscriptions.push(monitor);

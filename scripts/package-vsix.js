@@ -9,6 +9,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "ut
 const dist = path.join(root, "dist");
 const outFile = path.join(dist, `${manifest.name}-${manifest.version}.vsix`);
 
+// code-server가 읽을 수 있는 VSIX 메타데이터를 package.json에서 생성합니다.
 const manifestXml = `<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
   <Metadata>
@@ -41,6 +42,7 @@ const contentTypesXml = `<?xml version="1.0" encoding="utf-8"?>
 </Types>
 `;
 
+// VSIX 내부에서는 확장 파일들이 extension/ 디렉터리 아래에 들어갑니다.
 const files = [
   ["[Content_Types].xml", Buffer.from(contentTypesXml)],
   ["extension.vsixmanifest", Buffer.from(manifestXml)],
@@ -60,6 +62,7 @@ function createZip(entries) {
   let offset = 0;
 
   for (const [name, data] of entries) {
+    // Node 표준 라이브러리만으로 설치 가능한 VSIX(zip) 파일을 만듭니다.
     const nameBuffer = Buffer.from(name.replace(/\\/g, "/"));
     const compressed = zlib.deflateRawSync(data);
     const crc = crc32(data);
@@ -119,6 +122,7 @@ function createZip(entries) {
 }
 
 function crc32(buffer) {
+  // ZIP 헤더에는 각 파일의 CRC32가 필요합니다.
   const table = getCrcTable();
   let crc = 0xffffffff;
 
@@ -146,6 +150,7 @@ function getCrcTable() {
 }
 
 function toDosDateTime(date) {
+  // ZIP 포맷은 수정 시간을 DOS date/time 비트 필드로 저장합니다.
   const year = Math.max(1980, date.getFullYear());
   return {
     dosTime: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
@@ -154,6 +159,7 @@ function toDosDateTime(date) {
 }
 
 function escapeXml(value) {
+  // package.json 값이 XML을 깨뜨리지 않도록 특수문자를 이스케이프합니다.
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
