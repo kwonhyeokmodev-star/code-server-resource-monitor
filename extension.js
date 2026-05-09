@@ -245,8 +245,7 @@ function sampleFallbackMemory(total) {
 
 function readLinuxMemTotal() {
   try {
-    const meminfo = parseMeminfo(fs.readFileSync("/proc/meminfo", "utf8"));
-    return meminfo.MemTotal;
+    return readMeminfoValue("MemTotal");
   } catch {
     return undefined;
   }
@@ -255,8 +254,7 @@ function readLinuxMemTotal() {
 function sampleLinuxMemory(total) {
   try {
     // Linux에서는 매초 바뀌는 MemAvailable만 읽고, MemTotal은 시작 시점에 잡은 값을 재사용합니다.
-    const meminfo = parseMeminfo(fs.readFileSync("/proc/meminfo", "utf8"));
-    const available = meminfo.MemAvailable;
+    const available = readMeminfoValue("MemAvailable");
 
     if (!available) {
       return undefined;
@@ -276,18 +274,20 @@ function sampleLinuxMemory(total) {
   }
 }
 
-function parseMeminfo(content) {
-  const values = {};
+function readMeminfoValue(key) {
+  const prefix = `${key}:`;
+  const content = fs.readFileSync("/proc/meminfo", "utf8");
 
   for (const line of content.split(/\r?\n/)) {
-    const match = line.match(/^(\w+):\s+(\d+)\s+kB$/);
-
-    if (match) {
-      values[match[1]] = Number(match[2]) * 1024;
+    if (!line.startsWith(prefix)) {
+      continue;
     }
+
+    const match = line.match(/^(\w+):\s+(\d+)\s+kB$/);
+    return match ? Number(match[2]) * 1024 : undefined;
   }
 
-  return values;
+  return undefined;
 }
 
 function renderDashboardHtml(webview) {
