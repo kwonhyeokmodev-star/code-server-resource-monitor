@@ -1,43 +1,43 @@
 # Resource Monitor Lite
 
-A small code-server and VS Code extension that shows CPU and memory usage without a build step.
+code-server와 VS Code에서 CPU와 메모리 사용량을 가볍게 확인하는 확장입니다. TypeScript 빌드 과정 없이 plain JavaScript로 동작합니다.
 
-## Features
+## 기능
 
-- Status bar resource summary
-- Webview dashboard for CPU, memory, load average, uptime, and extension process memory
-- Configurable refresh interval
+- 상태바에 CPU / 메모리 사용률 표시
+- 대시보드에서 CPU, 메모리, load average, uptime, 확장 프로세스 메모리 표시
+- 새로고침 주기 설정 가능
 
-## Try it in code-server
+## code-server에서 사용하기
 
-Build the VSIX:
+VSIX 파일을 생성합니다.
 
 ```bash
 npm run package
 ```
 
-Install it:
+생성된 VSIX를 설치합니다.
 
 ```bash
 code-server --install-extension dist/resource-monitor-lite-0.0.1.vsix
 ```
 
-Then reload code-server and run:
+code-server를 reload한 뒤 Command Palette에서 아래 명령을 실행합니다.
 
 ```text
 Resource Monitor Lite: Show Dashboard
 ```
 
-## Settings
+## 설정
 
 - `resourceMonitorLite.refreshIntervalMs`
 - `resourceMonitorLite.statusBarFormat`
 
-## Development
+## 개발
 
-This extension is intentionally plain JavaScript. The entry point is `extension.js`, so it can be loaded by code-server without TypeScript compilation.
+이 확장은 의도적으로 plain JavaScript로 작성되어 있습니다. 진입점은 `extension.js`이며, TypeScript 컴파일 없이 code-server에서 로드할 수 있습니다.
 
-Useful commands:
+자주 쓰는 명령:
 
 ```bash
 npm run check
