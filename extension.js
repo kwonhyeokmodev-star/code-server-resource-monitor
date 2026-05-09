@@ -65,7 +65,7 @@ class ResourceMonitor {
   async refresh() {
     try {
       // CPU 사용률은 이전 샘플과 현재 샘플의 차이로 계산해야 순간값이 안정적으로 나옵니다.
-      const stats = await collectStats(this.previousCpuSample);
+      const stats = await collectStats(this.previousCpuSample, Boolean(this.panel));
       this.previousCpuSample = stats.cpu.sample;
       this.lastStats = stats;
       this.updateStatusBar(stats);
@@ -140,7 +140,7 @@ class ResourceMonitor {
   }
 }
 
-async function collectStats(previousCpuSample) {
+async function collectStats(previousCpuSample, includeProcessStats) {
   // code-server 서버 프로세스가 보는 리소스를 측정합니다.
   const cpuSample = sampleCpu();
   const cpuPercent = calculateCpuPercent(previousCpuSample, cpuSample);
@@ -159,10 +159,7 @@ async function collectStats(previousCpuSample) {
     },
     memory,
     loadAverage: os.loadavg(),
-    process: {
-      pid: process.pid,
-      memory: process.memoryUsage()
-    }
+    process: includeProcessStats ? sampleProcessStats() : undefined
   };
 }
 
@@ -191,6 +188,13 @@ function createSystemInfo() {
   return {
     hostname: os.hostname(),
     platform: `${os.type()} ${os.release()} (${os.arch()})`
+  };
+}
+
+function sampleProcessStats() {
+  return {
+    pid: process.pid,
+    memory: process.memoryUsage()
   };
 }
 
@@ -534,7 +538,9 @@ function renderDashboardHtml(webview) {
       byId("platform").textContent = stats.platform;
       byId("load").textContent = stats.loadAverage.map((value) => value.toFixed(2)).join(", ");
       byId("uptime").textContent = duration(stats.uptime);
-      byId("process").textContent = "PID " + stats.process.pid + ", RSS " + bytes(stats.process.memory.rss);
+      byId("process").textContent = stats.process
+        ? "PID " + stats.process.pid + ", RSS " + bytes(stats.process.memory.rss)
+        : "-";
     }
 
     function setMeter(prefix, value) {
