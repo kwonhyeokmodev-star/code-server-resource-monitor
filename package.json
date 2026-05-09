@@ -36,7 +36,7 @@
       "properties": {
         "resourceMonitorLite.refreshIntervalMs": {
           "type": "number",
-          "default": 2000,
+          "default": 1000,
           "minimum": 500,
           "description": "How often resource statistics are refreshed."
         },

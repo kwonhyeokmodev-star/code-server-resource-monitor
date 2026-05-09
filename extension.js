@@ -3,7 +3,7 @@
 const vscode = require("vscode");
 const os = require("os");
 
-const DEFAULT_INTERVAL_MS = 2000;
+const DEFAULT_INTERVAL_MS = 1000;
 
 // code-server 상태바와 대시보드를 함께 관리하는 확장 본체입니다.
 class ResourceMonitor {
