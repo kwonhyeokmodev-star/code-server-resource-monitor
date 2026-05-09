@@ -6,6 +6,7 @@ code-server와 VS Code에서 CPU와 메모리 사용량을 가볍게 확인하�
 
 - 상태바에 CPU / 메모리 사용률 표시
 - 대시보드에서 CPU, 메모리, load average, uptime, 확장 프로세스 메모리 표시
+- Linux에서는 `/proc/meminfo`의 `MemAvailable` 기준으로 메모리 사용률 계산
 - 기본 1초 주기로 새로고침, 설정에서 변경 가능
 
 ## code-server에서 사용하기

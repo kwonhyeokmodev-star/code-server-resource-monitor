@@ -1,9 +1,12 @@
 "use strict";
 
 const vscode = require("vscode");
+const fs = require("fs");
 const os = require("os");
 
 const DEFAULT_INTERVAL_MS = 1000;
+const PLATFORM = os.platform();
+const sampleMemory = createMemorySampler(PLATFORM);
 
 // code-server 상태바와 대시보드를 함께 관리하는 확장 본체입니다.
 class ResourceMonitor {
@@ -113,7 +116,7 @@ class ResourceMonitor {
 
     this.statusBar.tooltip = [
       `CPU ${formatPercent(stats.cpu.percent)}%`,
-      `Memory ${formatPercent(stats.memory.percent)}% (${formatBytes(stats.memory.used)} / ${formatBytes(stats.memory.total)})`,
+      `Memory ${formatPercent(stats.memory.percent)}% (${formatBytes(stats.memory.used)} used / ${formatBytes(stats.memory.free)} available, ${stats.memory.source})`,
       `Load ${stats.loadAverage.map((value) => value.toFixed(2)).join(", ")}`
     ].join("\n");
   }
@@ -136,7 +139,7 @@ class ResourceMonitor {
 }
 
 async function collectStats(previousCpuSample) {
-  // Node.js의 os API만 사용해서 code-server 서버 프로세스가 보는 리소스를 측정합니다.
+  // code-server 서버 프로세스가 보는 리소스를 측정합니다.
   const cpuSample = sampleCpu();
   const cpuPercent = calculateCpuPercent(previousCpuSample, cpuSample);
   const memory = sampleMemory();
@@ -185,7 +188,26 @@ function calculateCpuPercent(previous, current) {
   return clamp(((totalDelta - idleDelta) / totalDelta) * 100, 0, 100);
 }
 
-function sampleMemory() {
+function createMemorySampler(platform) {
+  if (platform === "linux") {
+    return sampleLinuxMemoryWithFallback;
+  }
+
+  return sampleFallbackMemory;
+}
+
+function sampleLinuxMemoryWithFallback() {
+  const linuxMemory = sampleLinuxMemory();
+
+  if (linuxMemory) {
+    return linuxMemory;
+  }
+
+  return sampleFallbackMemory();
+}
+
+function sampleFallbackMemory() {
+  // Linux meminfo를 읽지 못하거나 Linux가 아니면 Node의 기본 freemem 값을 사용합니다.
   const total = os.totalmem();
   const free = os.freemem();
   const used = total - free;
@@ -194,8 +216,48 @@ function sampleMemory() {
     total,
     free,
     used,
-    percent: total > 0 ? clamp((used / total) * 100, 0, 100) : 0
+    percent: total > 0 ? clamp((used / total) * 100, 0, 100) : 0,
+    source: "os.freemem"
   };
+}
+
+function sampleLinuxMemory() {
+  try {
+    // Linux에서는 free보다 MemAvailable이 실제로 새 작업에 쓸 수 있는 메모리에 더 가깝습니다.
+    const meminfo = parseMeminfo(fs.readFileSync("/proc/meminfo", "utf8"));
+    const total = meminfo.MemTotal;
+    const available = meminfo.MemAvailable;
+
+    if (!total || !available) {
+      return undefined;
+    }
+
+    const used = total - available;
+
+    return {
+      total,
+      free: available,
+      used,
+      percent: clamp((used / total) * 100, 0, 100),
+      source: "MemAvailable"
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function parseMeminfo(content) {
+  const values = {};
+
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^(\w+):\s+(\d+)\s+kB$/);
+
+    if (match) {
+      values[match[1]] = Number(match[2]) * 1024;
+    }
+  }
+
+  return values;
 }
 
 function renderDashboardHtml(webview) {
@@ -436,7 +498,7 @@ function renderDashboardHtml(webview) {
       byId("cpuCores").textContent = stats.cpu.cores + " cores";
       byId("cpuDetail").textContent = stats.cpu.model;
       byId("memoryTotal").textContent = bytes(stats.memory.total);
-      byId("memoryDetail").textContent = bytes(stats.memory.used) + " used / " + bytes(stats.memory.free) + " free";
+      byId("memoryDetail").textContent = bytes(stats.memory.used) + " used / " + bytes(stats.memory.free) + " available (" + stats.memory.source + ")";
 
       byId("host").textContent = stats.hostname;
       byId("platform").textContent = stats.platform;
