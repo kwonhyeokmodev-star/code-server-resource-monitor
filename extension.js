@@ -1,9 +1,7 @@
 "use strict";
 
 const vscode = require("vscode");
-const fs = require("fs");
 const os = require("os");
-const { execFile } = require("child_process");
 
 const DEFAULT_INTERVAL_MS = 2000;
 
@@ -99,30 +97,18 @@ class ResourceMonitor {
 
   updateStatusBar(stats) {
     const config = getConfig();
-    const showDisk = config.get("showDiskInStatusBar", true);
-    let format = config.get("statusBarFormat", "$(pulse) CPU {cpu}%  MEM {mem}%  DISK {disk}%");
-
-    if (!showDisk) {
-      format = format.replace(/\s*DISK\s+\{disk\}%/i, "");
-    }
+    const format = config.get("statusBarFormat", "$(pulse) CPU {cpu}%  MEM {mem}%");
 
     this.statusBar.text = format
       .replaceAll("{cpu}", formatPercent(stats.cpu.percent))
       .replaceAll("{mem}", formatPercent(stats.memory.percent))
-      .replaceAll("{disk}", stats.disk ? formatPercent(stats.disk.percent) : "n/a")
       .replaceAll("{load1}", stats.loadAverage[0].toFixed(2))
       .replaceAll("{usedMem}", formatBytes(stats.memory.used))
-      .replaceAll("{totalMem}", formatBytes(stats.memory.total))
-      .replaceAll("{diskPath}", stats.diskPath);
-
-    const diskLine = stats.disk
-      ? `Disk ${formatPercent(stats.disk.percent)}% (${formatBytes(stats.disk.used)} / ${formatBytes(stats.disk.total)})`
-      : `Disk unavailable for ${stats.diskPath}`;
+      .replaceAll("{totalMem}", formatBytes(stats.memory.total));
 
     this.statusBar.tooltip = [
       `CPU ${formatPercent(stats.cpu.percent)}%`,
       `Memory ${formatPercent(stats.memory.percent)}% (${formatBytes(stats.memory.used)} / ${formatBytes(stats.memory.total)})`,
-      diskLine,
       `Load ${stats.loadAverage.map((value) => value.toFixed(2)).join(", ")}`
     ].join("\n");
   }
@@ -145,11 +131,9 @@ class ResourceMonitor {
 }
 
 async function collectStats(previousCpuSample) {
-  const diskPath = getConfig().get("diskPath", "/") || "/";
   const cpuSample = sampleCpu();
   const cpuPercent = calculateCpuPercent(previousCpuSample, cpuSample);
   const memory = sampleMemory();
-  const disk = await sampleDisk(diskPath);
 
   return {
     timestamp: new Date().toISOString(),
@@ -163,8 +147,6 @@ async function collectStats(previousCpuSample) {
       sample: cpuSample
     },
     memory,
-    disk,
-    diskPath,
     loadAverage: os.loadavg(),
     process: {
       pid: process.pid,
@@ -206,41 +188,6 @@ function sampleMemory() {
     used,
     percent: total > 0 ? clamp((used / total) * 100, 0, 100) : 0
   };
-}
-
-function sampleDisk(pathToCheck) {
-  return new Promise((resolve) => {
-    execFile("df", ["-Pk", pathToCheck], { timeout: 1500 }, (error, stdout) => {
-      if (error) {
-        resolve(undefined);
-        return;
-      }
-
-      const lines = stdout.trim().split(/\r?\n/);
-      const line = lines[lines.length - 1];
-      const parts = line ? line.split(/\s+/) : [];
-
-      if (parts.length < 6) {
-        resolve(undefined);
-        return;
-      }
-
-      const total = Number(parts[1]) * 1024;
-      const used = Number(parts[2]) * 1024;
-      const available = Number(parts[3]) * 1024;
-      const percent = Number(parts[4].replace("%", ""));
-      const mount = parts.slice(5).join(" ");
-
-      resolve({
-        filesystem: parts[0],
-        total,
-        used,
-        available,
-        percent: Number.isFinite(percent) ? percent : total > 0 ? (used / total) * 100 : 0,
-        mount
-      });
-    });
-  });
 }
 
 function renderDashboardHtml(webview) {
@@ -425,12 +372,6 @@ function renderDashboardHtml(webview) {
         <div class="meter"><div class="bar" id="memoryBar"></div></div>
         <div class="detail" id="memoryDetail">-</div>
       </article>
-      <article class="card">
-        <div class="label"><span>Disk</span><span id="diskPath">-</span></div>
-        <div class="value" id="diskValue">--%</div>
-        <div class="meter"><div class="bar" id="diskBar"></div></div>
-        <div class="detail" id="diskDetail">-</div>
-      </article>
       <article class="card wide">
         <dl>
           <div>
@@ -487,16 +428,6 @@ function renderDashboardHtml(webview) {
       byId("cpuDetail").textContent = stats.cpu.model;
       byId("memoryTotal").textContent = bytes(stats.memory.total);
       byId("memoryDetail").textContent = bytes(stats.memory.used) + " used / " + bytes(stats.memory.free) + " free";
-
-      if (stats.disk) {
-        setMeter("disk", stats.disk.percent);
-        byId("diskPath").textContent = stats.diskPath;
-        byId("diskDetail").textContent = bytes(stats.disk.used) + " used / " + bytes(stats.disk.available) + " available on " + stats.disk.mount;
-      } else {
-        byId("diskValue").textContent = "n/a";
-        byId("diskBar").style.width = "0%";
-        byId("diskDetail").textContent = "Disk usage is unavailable for " + stats.diskPath;
-      }
 
       byId("host").textContent = stats.hostname;
       byId("platform").textContent = stats.platform;

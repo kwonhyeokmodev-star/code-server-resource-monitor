@@ -1,7 +1,7 @@
 {
   "name": "resource-monitor-lite",
   "displayName": "Resource Monitor Lite",
-  "description": "A lightweight CPU, memory, and disk monitor for code-server and VS Code.",
+  "description": "A lightweight CPU and memory monitor for code-server and VS Code.",
   "version": "0.0.1",
   "publisher": "local",
   "engines": {
@@ -40,20 +40,10 @@
           "minimum": 500,
           "description": "How often resource statistics are refreshed."
         },
-        "resourceMonitorLite.diskPath": {
-          "type": "string",
-          "default": "/",
-          "description": "Filesystem path used for disk usage statistics."
-        },
-        "resourceMonitorLite.showDiskInStatusBar": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show disk usage in the status bar item."
-        },
         "resourceMonitorLite.statusBarFormat": {
           "type": "string",
-          "default": "$(pulse) CPU {cpu}%  MEM {mem}%  DISK {disk}%",
-          "description": "Status bar format. Available placeholders: {cpu}, {mem}, {disk}, {load1}, {usedMem}, {totalMem}, {diskPath}."
+          "default": "$(pulse) CPU {cpu}%  MEM {mem}%",
+          "description": "Status bar format. Available placeholders: {cpu}, {mem}, {load1}, {usedMem}, {totalMem}."
         }
       }
     },

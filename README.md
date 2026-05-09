@@ -1,13 +1,12 @@
 # Resource Monitor Lite
 
-A small code-server and VS Code extension that shows CPU, memory, and disk usage without a build step.
+A small code-server and VS Code extension that shows CPU and memory usage without a build step.
 
 ## Features
 
 - Status bar resource summary
-- Webview dashboard for CPU, memory, disk, load average, uptime, and extension process memory
+- Webview dashboard for CPU, memory, load average, uptime, and extension process memory
 - Configurable refresh interval
-- Configurable disk path
 
 ## Try it in code-server
 
@@ -32,8 +31,6 @@ Resource Monitor Lite: Show Dashboard
 ## Settings
 
 - `resourceMonitorLite.refreshIntervalMs`
-- `resourceMonitorLite.diskPath`
-- `resourceMonitorLite.showDiskInStatusBar`
 - `resourceMonitorLite.statusBarFormat`
 
 ## Development
