@@ -7,6 +7,7 @@ const os = require("os");
 const DEFAULT_INTERVAL_MS = 1000;
 const PLATFORM = os.platform();
 const CPU_INFO = createCpuInfo();
+const SYSTEM_INFO = createSystemInfo();
 const sampleMemory = createMemorySampler(PLATFORM);
 
 // code-server 상태바와 대시보드를 함께 관리하는 확장 본체입니다.
@@ -147,8 +148,8 @@ async function collectStats(previousCpuSample) {
 
   return {
     timestamp: new Date().toISOString(),
-    hostname: os.hostname(),
-    platform: `${os.type()} ${os.release()} (${os.arch()})`,
+    hostname: SYSTEM_INFO.hostname,
+    platform: SYSTEM_INFO.platform,
     uptime: os.uptime(),
     cpu: {
       percent: cpuPercent,
@@ -183,6 +184,13 @@ function createCpuInfo() {
   return {
     cores: cpus.length,
     model: cpus[0] ? cpus[0].model : "Unknown CPU"
+  };
+}
+
+function createSystemInfo() {
+  return {
+    hostname: os.hostname(),
+    platform: `${os.type()} ${os.release()} (${os.arch()})`
   };
 }
 
