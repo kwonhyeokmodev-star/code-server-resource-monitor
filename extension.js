@@ -6,7 +6,8 @@ const os = require("os");
 
 const DEFAULT_INTERVAL_MS = 1000;
 const PLATFORM = os.platform();
-const CPU_INFO = createCpuInfo();
+const cpuSampler = createCpuSampler(PLATFORM);
+const CPU_INFO = createCpuInfo(cpuSampler);
 const SYSTEM_INFO = createSystemInfo();
 const sampleMemory = createMemorySampler(PLATFORM);
 
@@ -16,7 +17,7 @@ class ResourceMonitor {
     this.context = context;
     this.panel = undefined;
     this.timer = undefined;
-    this.previousCpuSample = sampleCpu();
+    this.previousCpuSample = cpuSampler.sample();
     this.lastStats = undefined;
     this.disposables = [];
 
@@ -142,7 +143,7 @@ class ResourceMonitor {
 
 async function collectStats(previousCpuSample, includeProcessStats) {
   // code-server 서버 프로세스가 보는 리소스를 측정합니다.
-  const cpuSample = sampleCpu();
+  const cpuSample = cpuSampler.sample();
   const cpuPercent = calculateCpuPercent(previousCpuSample, cpuSample);
   const memory = sampleMemory();
 
@@ -163,7 +164,27 @@ async function collectStats(previousCpuSample, includeProcessStats) {
   };
 }
 
-function sampleCpu() {
+function createCpuSampler(platform) {
+  if (platform === "linux") {
+    const cgroupCpuFiles = findCgroupCpuFiles();
+
+    if (cgroupCpuFiles) {
+      return {
+        sample: () => sampleCgroupCpu(cgroupCpuFiles) || sampleHostCpu(),
+        cores: cgroupCpuFiles.quotaCores,
+        source: cgroupCpuFiles.source
+      };
+    }
+  }
+
+  return {
+    sample: sampleHostCpu,
+    cores: os.cpus().length,
+    source: "os.cpus"
+  };
+}
+
+function sampleHostCpu() {
   // 전체 코어의 idle/total 시간을 합산해 다음 샘플과 비교할 기준값을 만듭니다.
   return os.cpus().reduce((accumulator, cpu) => {
     const idle = cpu.times.idle;
@@ -175,12 +196,12 @@ function sampleCpu() {
   }, { idle: 0, total: 0 });
 }
 
-function createCpuInfo() {
+function createCpuInfo(sampler) {
   const cpus = os.cpus();
 
   return {
-    cores: cpus.length,
-    model: cpus[0] ? cpus[0].model : "Unknown CPU"
+    cores: sampler.cores || cpus.length,
+    model: `${cpus[0] ? cpus[0].model : "Unknown CPU"} (${sampler.source})`
   };
 }
 
@@ -199,6 +220,18 @@ function sampleProcessStats() {
 }
 
 function calculateCpuPercent(previous, current) {
+  if (previous.usageMicros !== undefined && current.usageMicros !== undefined) {
+    const usageDelta = current.usageMicros - previous.usageMicros;
+    const elapsedDelta = current.timestampMicros - previous.timestampMicros;
+    const quotaCores = current.quotaCores || previous.quotaCores;
+
+    if (usageDelta < 0 || elapsedDelta <= 0 || !quotaCores) {
+      return 0;
+    }
+
+    return clamp((usageDelta / (elapsedDelta * quotaCores)) * 100, 0, 100);
+  }
+
   const idleDelta = current.idle - previous.idle;
   const totalDelta = current.total - previous.total;
 
@@ -210,9 +243,183 @@ function calculateCpuPercent(previous, current) {
   return clamp(((totalDelta - idleDelta) / totalDelta) * 100, 0, 100);
 }
 
+function findCgroupCpuFiles() {
+  const candidates = [
+    {
+      usage: "/sys/fs/cgroup/cpu.stat",
+      quota: "/sys/fs/cgroup/cpu.max",
+      source: "cgroup v2",
+      type: "v2"
+    },
+    {
+      usage: "/sys/fs/cgroup/cpuacct/cpuacct.usage",
+      quota: "/sys/fs/cgroup/cpu/cpu.cfs_quota_us",
+      period: "/sys/fs/cgroup/cpu/cpu.cfs_period_us",
+      source: "cgroup v1",
+      type: "v1"
+    },
+    {
+      usage: "/sys/fs/cgroup/cpuacct.usage",
+      quota: "/sys/fs/cgroup/cpu.cfs_quota_us",
+      period: "/sys/fs/cgroup/cpu.cfs_period_us",
+      source: "cgroup v1",
+      type: "v1"
+    }
+  ];
+
+  for (const candidate of candidates.concat(findMountedCgroupCpuFiles())) {
+    const quotaCores = readCgroupCpuQuota(candidate);
+
+    if (quotaCores && fs.existsSync(candidate.usage)) {
+      return { ...candidate, quotaCores };
+    }
+  }
+
+  return undefined;
+}
+
+function findMountedCgroupCpuFiles() {
+  try {
+    const content = fs.readFileSync("/proc/self/cgroup", "utf8");
+    const candidates = [];
+
+    for (const line of content.split(/\r?\n/)) {
+      const parts = line.split(":");
+
+      if (parts.length !== 3) {
+        continue;
+      }
+
+      const [, controllers, cgroupPath] = parts;
+      const relativePath = cgroupPath.replace(/^\/+/, "");
+
+      if (controllers === "") {
+        candidates.push({
+          usage: pathJoinCgroup(relativePath, "cpu.stat"),
+          quota: pathJoinCgroup(relativePath, "cpu.max"),
+          source: "cgroup v2",
+          type: "v2"
+        });
+        continue;
+      }
+
+      const controllerList = controllers.split(",");
+      const hasCpu = controllerList.includes("cpu");
+      const hasCpuAcct = controllerList.includes("cpuacct");
+
+      if (hasCpu || hasCpuAcct) {
+        for (const usageController of ["cpuacct", "cpu"]) {
+          candidates.push({
+            usage: pathJoinCgroup(usageController, relativePath, "cpuacct.usage"),
+            quota: pathJoinCgroup("cpu", relativePath, "cpu.cfs_quota_us"),
+            period: pathJoinCgroup("cpu", relativePath, "cpu.cfs_period_us"),
+            source: "cgroup v1",
+            type: "v1"
+          });
+        }
+      }
+    }
+
+    return candidates;
+  } catch {
+    return [];
+  }
+}
+
+function readCgroupCpuQuota(files) {
+  if (files.type === "v2") {
+    try {
+      const [quota, period] = fs.readFileSync(files.quota, "utf8").trim().split(/\s+/);
+
+      if (quota === "max") {
+        return undefined;
+      }
+
+      return usableCpuCores(Number(quota) / Number(period));
+    } catch {
+      return undefined;
+    }
+  }
+
+  const quota = readNumericFile(files.quota);
+  const period = readNumericFile(files.period);
+
+  if (!quota || quota < 0 || !period) {
+    return undefined;
+  }
+
+  return usableCpuCores(quota / period);
+}
+
+function usableCpuCores(value) {
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function sampleCgroupCpu(files) {
+  const usageMicros = files.type === "v2"
+    ? readCgroupV2CpuUsage(files.usage)
+    : readCgroupV1CpuUsage(files.usage);
+
+  if (usageMicros === undefined) {
+    return undefined;
+  }
+
+  return {
+    usageMicros,
+    timestampMicros: Date.now() * 1000,
+    quotaCores: files.quotaCores
+  };
+}
+
+function readCgroupV2CpuUsage(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, "utf8");
+
+    for (const line of content.split(/\r?\n/)) {
+      const [key, value] = line.trim().split(/\s+/);
+
+      if (key === "usage_usec") {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : undefined;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function readCgroupV1CpuUsage(filePath) {
+  const usageNanos = readNumericFile(filePath);
+  return usageNanos === undefined ? undefined : usageNanos / 1000;
+}
+
+function readNumericFile(filePath) {
+  try {
+    const value = Number(fs.readFileSync(filePath, "utf8").trim());
+    return Number.isFinite(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function createMemorySampler(platform) {
   if (platform === "linux") {
     const linuxTotal = readLinuxMemTotal();
+    const cgroupMemoryFiles = findCgroupMemoryFiles();
+
+    if (cgroupMemoryFiles) {
+      return () => {
+        const cgroupMemory = sampleCgroupMemory(cgroupMemoryFiles);
+
+        if (cgroupMemory) {
+          return cgroupMemory;
+        }
+
+        return linuxTotal ? sampleLinuxMemoryWithFallback(linuxTotal) : sampleFallbackMemory(os.totalmem());
+      };
+    }
 
     if (linuxTotal) {
       return () => sampleLinuxMemoryWithFallback(linuxTotal);
@@ -245,6 +452,115 @@ function sampleFallbackMemory(total) {
     percent: total > 0 ? clamp((used / total) * 100, 0, 100) : 0,
     source: "os.freemem"
   };
+}
+
+function findCgroupMemoryFiles() {
+  const candidates = [
+    {
+      current: "/sys/fs/cgroup/memory.current",
+      max: "/sys/fs/cgroup/memory.max",
+      source: "cgroup v2"
+    },
+    {
+      current: "/sys/fs/cgroup/memory/memory.usage_in_bytes",
+      max: "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+      source: "cgroup v1"
+    },
+    {
+      current: "/sys/fs/cgroup/memory.usage_in_bytes",
+      max: "/sys/fs/cgroup/memory.limit_in_bytes",
+      source: "cgroup v1"
+    }
+  ];
+
+  for (const candidate of candidates.concat(findMountedCgroupMemoryFiles())) {
+    if (fs.existsSync(candidate.current) && fs.existsSync(candidate.max)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function findMountedCgroupMemoryFiles() {
+  try {
+    const content = fs.readFileSync("/proc/self/cgroup", "utf8");
+    const candidates = [];
+
+    for (const line of content.split(/\r?\n/)) {
+      const parts = line.split(":");
+
+      if (parts.length !== 3) {
+        continue;
+      }
+
+      const [, controllers, cgroupPath] = parts;
+      const relativePath = cgroupPath.replace(/^\/+/, "");
+
+      if (controllers === "") {
+        candidates.push({
+          current: pathJoinCgroup(relativePath, "memory.current"),
+          max: pathJoinCgroup(relativePath, "memory.max"),
+          source: "cgroup v2"
+        });
+        continue;
+      }
+
+      if (controllers.split(",").includes("memory")) {
+        candidates.push({
+          current: pathJoinCgroup("memory", relativePath, "memory.usage_in_bytes"),
+          max: pathJoinCgroup("memory", relativePath, "memory.limit_in_bytes"),
+          source: "cgroup v1"
+        });
+      }
+    }
+
+    return candidates;
+  } catch {
+    return [];
+  }
+}
+
+function pathJoinCgroup(...parts) {
+  return ["/sys/fs/cgroup"].concat(parts.filter(Boolean)).join("/");
+}
+
+function sampleCgroupMemory(files) {
+  const total = readCgroupMemoryValue(files.max);
+  const used = readCgroupMemoryValue(files.current);
+
+  if (!isUsableCgroupLimit(total) || used === undefined) {
+    return undefined;
+  }
+
+  const clampedUsed = clamp(used, 0, total);
+
+  return {
+    total,
+    free: total - clampedUsed,
+    used: clampedUsed,
+    percent: clamp((clampedUsed / total) * 100, 0, 100),
+    source: files.source
+  };
+}
+
+function readCgroupMemoryValue(filePath) {
+  try {
+    const value = fs.readFileSync(filePath, "utf8").trim();
+
+    if (value === "max") {
+      return undefined;
+    }
+
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isUsableCgroupLimit(value) {
+  return value !== undefined && value > 0 && value < Number.MAX_SAFE_INTEGER && value < 1024 ** 5;
 }
 
 function readLinuxMemTotal() {
